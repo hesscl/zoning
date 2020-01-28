@@ -1,0 +1,20 @@
+---
+title: "zoning data description"
+author: "Chris Hess"
+date: "1/28/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+
+land_use <- read.csv("./input/Longitudinal_NLLUS_Data_Long (w Census).csv")
+```
+
+### How much does sample size in terms of jurisdictions change by survey wave
+
+### How much does their coding for zoning change by survey wave
+
+### How much does zoning change by jurisdiction, net of coding differences over time
+
+### How useful are the existing Census data that Urban added to the surveys
