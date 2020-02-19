@@ -39,6 +39,6 @@ vignettes/*.pdf
 .Renviron
 
 # subdirectories to ignore
-*/input/*
-*/output/*
-*/etc/*
+**/input/**
+**/output/**
+**/etc/**
