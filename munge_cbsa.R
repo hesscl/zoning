@@ -15,7 +15,7 @@ options(stringsAsFactors = FALSE)
 
 #### A. Load NHGIS extracts ---------------------------------------------------
 
-## Flat files
+## Tract flat files
 
 #2000 decennial census
 census2000a <- read.csv("input/2000 Tract Tables/nhgis0132_ds146_2000_tract.csv") %>%
@@ -42,14 +42,34 @@ acs2016 <- inner_join(acs2016a, acs2016b)
 regions <- read.csv("./input/census_regions.csv") %>%
   select(STATE=State, REGION=Region, DIVISION=Division)
 
+## CBSA flat files
+
+# Census 2000
+# -not available, would need to be computed from county or smaller units
+# -issue is for median tables, can only approximate value
+
+# 2008-2012 ACS
+acs2010a_cbsa <- read.csv("./input/2008-2012 ACS CBSA Tables/nhgis0134_ds191_20125_2012_cbsa.csv") %>%
+  select(-(GISJOIN:ANRCA), -(CSAA:NAME_E), -NAME_M)
+acs2010b_cbsa <- read.csv("./input/2008-2012 ACS CBSA Tables/nhgis0134_ds192_20125_2012_cbsa.csv") %>%
+  select(-(GISJOIN:ANRCA), -(CSAA:NAME_E), -NAME_M)
+acs2010_cbsa <- inner_join(acs2010a_cbsa, acs2010b_cbsa)
+
+# 2014-2018 ACS
+acs2016a_cbsa <- read.csv("./input/2014-2018 ACS CBSA Tables/nhgis0133_ds239_20185_2018_cbsa.csv") %>%
+  select(-(GISJOIN:ANRCA), -(CSAA:NAME_E), -NAME_M)
+acs2016b_cbsa <- read.csv("./input/2014-2018 ACS CBSA Tables/nhgis0133_ds240_20185_2018_cbsa.csv") %>%
+  select(-(GISJOIN:ANRCA), -(CSAA:NAME_E), -NAME_M)
+acs2016_cbsa <- inner_join(acs2016a_cbsa, acs2016b_cbsa)
+
 ## Spatial data
 
 #CBSA shapefile
-cbsa_shp <- read_sf("./input/CBSA/US_cbsa_2017.shp") %>%
+cbsa_shp <- read_sf("./input/2013-2017 ACS CBSA Polygon/US_cbsa_2017.shp") %>%
   filter(MEMI == "1")
 
 #Metropolitan division shapefile
-metdiv_shp <- read_sf("./input/CBSA/US_metdiv_2017.shp") %>%
+metdiv_shp <- read_sf("./input/2013-2017 ACS CBSA Polygon/US_metdiv_2017.shp") %>%
   st_transform(crs = st_crs(cbsa_shp))
 
 #2000 tract shapefile
@@ -115,6 +135,19 @@ metdiv_shp <- metdiv_shp %>%
   rename(METDIVNAME = NAME,
          METDIVNAMELSAD = NAMELSAD)
 
+acs2010_cbsa <- acs2010_cbsa %>%
+  rename(CBSANAMELSAD = CBSA,
+         CBSAFP = CBSAA) %>%
+  mutate(CBSAFP = as.character(CBSAFP)) %>%
+  mutate(CBSAFP = ifelse(grepl("Honolulu", CBSANAMELSAD), 46520, CBSAFP),
+         CBSAFP = ifelse(grepl("Los Angeles", CBSANAMELSAD), 31080, CBSAFP),
+         CBSAFP = ifelse(grepl("Santa Maria", CBSANAMELSAD), 42200, CBSAFP))
+
+acs2016_cbsa <- acs2016_cbsa %>%
+  rename(CBSANAMELSAD = CBSA,
+         CBSAFP = CBSAA) %>%
+  mutate(CBSAFP = as.character(CBSAFP))
+
 ## function to join metro codes onto flatfiles based on spatial joins
 metro_joiner <- function(tbl, shp){
   
@@ -160,6 +193,7 @@ acs2016 <- metro_joiner(acs2016, acs2016_shp)
 #          ii. drop geometry and append the cluster values back to the tract data
 #          iii. append location indicator to the flat files
 
+#point in polygon intersection for tract centroids in cluster regions
 census2000_clust_cw <- st_join(st_centroid(census2000_shp) %>% select(GISJOIN), 
                                clust %>% select(clust), 
                                left = FALSE)
@@ -170,14 +204,19 @@ acs2016_clust_cw <- st_join(st_centroid(acs2016_shp) %>% select(GISJOIN),
                             clust %>% select(clust), 
                             left = FALSE)
 
+#drop the geometry column to make the crosswalks dataframes
 census2000_clust_cw <- st_drop_geometry(census2000_clust_cw)
 acs2010_clust_cw <- st_drop_geometry(acs2010_clust_cw)
 acs2016_clust_cw <- st_drop_geometry(acs2016_clust_cw)
 
+#1:1 join of the spatially-intersected cluster value to the tract data
 census2000 <- inner_join(census2000, census2000_clust_cw)
 acs2010 <- inner_join(acs2010, acs2010_clust_cw)
 acs2016 <- inner_join(acs2016, acs2016_clust_cw)
 
+#### III. Identify the region for each tract ----------------------------------
+
+#m:1 join of the tracts to the region table
 census2000 <- left_join(census2000, regions)
 acs2010 <- left_join(acs2010, regions)
 acs2016 <- left_join(acs2016, regions)
@@ -202,7 +241,7 @@ acs2016 <- left_join(acs2016, regions)
 #  plot()
 
 
-#### III. Summarize concentration of poverty and housing development ----------
+#### IV. Summarize concentration of poverty and housing development -----------
 
 #Strategy: i. create flag for high-poverty neighborhoods
 #          ii. group tract tables by metro area
@@ -222,7 +261,7 @@ metro_summary <- function(tbl, year){
   tbl <- tbl %>%
     
    #group the tracts by metro area
-    group_by(METRO, METRONAMELSAD) %>%
+    group_by(CBSAFP, CBSANAMELSAD) %>%
     
     #compute summary columns using various aggregation funs
     summarize(REGION = max(REGION),
@@ -281,6 +320,7 @@ acs2010 <- acs2010 %>%
   mutate(high_pov_tract = if_else(QUVE001 > 0, (QUVE002+QUVE003)/(QUVE001) >= poor_tract_thresh, FALSE),
          tot_poor = QUVE002+QUVE003,
          poor_in_pov_tract = if_else(high_pov_tract, tot_poor, 0L),
+         tot_occ_hu = RGZE001,
          hu_blt_post_2000 = RGZE003+RGZE039,
          own_occ_sfh_post_2000 = RGZE004,
          newer_suburb = clust == "Newer Suburb",
@@ -292,14 +332,29 @@ acs2010 <- acs2010 %>%
          tot_nhoth = QSYE005+QSYE008+QSYE009+QSYE010+QSYE011,
          tot_hsp = QSYE012)
 
+acs2010_cbsa <- acs2010_cbsa %>%
+  mutate(med_hh_inc = QU1E001 * 1.09, #chain to 2018 CPI
+         tot_unemp = QXSE005,
+         tot_in_labf = QXSE002,
+         tot_16plus = QXSE001,
+         pct_unemp = tot_unemp/tot_in_labf,
+         tot_hu = QX7E001,
+         tot_vac_hu = QX7E003,
+         med_gross_rent = QZTE001 * 1.09,
+         med_val = QZ6E001,
+         med_yr_blt = QY2E001) %>% 
+  select(CBSAFP, starts_with("med"), starts_with("pct"))
+
 metro_sum_2010 <- acs2010 %>%
-  metro_summary(year = 2010)
+  metro_summary(year = 2010) %>%
+  inner_join(acs2010_cbsa)
 
 ## compute ACS 2014-2018 metropolitan summaries
 acs2016 <- acs2016 %>%
   mutate(high_pov_tract = if_else(AJY4E001 > 0, (AJY4E002+AJY4E003)/(AJY4E001) >= poor_tract_thresh, FALSE),
          tot_poor = AJY4E002+AJY4E003,
          poor_in_pov_tract = if_else(high_pov_tract, tot_poor, 0L),
+         tot_occ_hu = AKL6E001,
          hu_blt_post_2000 = AKL6E003+AKL6E010+AKL6E046+AKL6E053,
          own_occ_sfh_post_2000 = AKL6E004+AKL6E011,
          newer_suburb = clust == "Newer Suburb",
@@ -311,36 +366,48 @@ acs2016 <- acs2016 %>%
          tot_nhoth = AJWVE005+AJWVE008+AJWVE009+AJWVE010+AJWVE011,
          tot_hsp = AJWVE012) 
 
+acs2016_cbsa <- acs2016_cbsa %>%
+  mutate(med_hh_inc = AJZAE001,
+         tot_unemp = AJ1CE005,
+         tot_in_labf = AJ1CE002,
+         tot_16plus = AJ1CE001,
+         pct_unemp = tot_unemp/tot_in_labf,
+         tot_hu = AJ1TE001,
+         tot_vac_hu = AJ1TE003,
+         med_gross_rent = AJ3EE001,
+         med_val = AJ3QE001,
+         med_yr_blt = AJ2NE001) %>%
+  select(CBSAFP, starts_with("med"), starts_with("pct"))
+
 metro_sum_2016 <- acs2016 %>%
-  metro_summary(year = 2016)
+  metro_summary(year = 2016) %>%
+  inner_join(acs2016_cbsa)
 
 #compile each time period's metro summaries into a single tbl
-metro_sum <- bind_rows(metro_sum_2000, metro_sum_2010, metro_sum_2016)
+metro_sum <- bind_rows(metro_sum_2010, metro_sum_2016)
 
 #assign a vector of top100 metro's names for filtering by total pop
 top100 <- metro_sum_2016 %>%
   top_n(100, tot_pop) %>%
-  pull(METRONAMELSAD)
+  pull(CBSAFP)
 
 #look for incomplete panel obs
 metro_sum %>% 
-  group_by(METRO, METRONAMELSAD) %>% 
+  group_by(CBSAFP) %>% 
   tally %>% 
-  filter(n != 3) 
+  filter(n != 2) 
 
-#NB: boulder is currently not included in clustering bc very small black pop
-
-#filter for incomplete panel obs
+#filter for incomplete panel obs (boulder CO omitted from clustering)
 metro_sum <- metro_sum %>%
-  group_by(METRO) %>%
-  filter(n() == 3) %>%
+  group_by(CBSAFP) %>%
+  filter(!is.na(conc_pov)) %>%
   ungroup()
 
 #now collapse panel into change scores for key variables
 change <- metro_sum %>%
   filter(YEAR > 2000) %>%
-  arrange(METRO, YEAR) %>%
-  group_by(METRO) %>%
+  arrange(CBSAFP, YEAR) %>%
+  group_by(CBSAFP, CBSANAMELSAD) %>%
   mutate(chg_new_hu_excl_zon = new_hu_excl_zon - lag(new_hu_excl_zon),
          chg_conc_pov = conc_pov - lag(conc_pov),
          chg_pov_rat = pov_rat - lag(pov_rat),
@@ -348,25 +415,75 @@ change <- metro_sum %>%
          chg_pct_nhb = pct_nhb - lag(pct_nhb),
          chg_pct_hsp = pct_hsp - lag(pct_hsp),
          chg_pct_nhapi = pct_nhapi - lag(pct_nhapi),
+         chg_pct_unemp = pct_unemp - lag(pct_unemp),
          chg_dis_nhb_nhw = dis_nhb_nhw - lag(dis_nhb_nhw),
          chg_dis_hsp_nhw = dis_hsp_nhw - lag(dis_hsp_nhw),
+         chg_med_hh_inc = med_hh_inc - lag(med_hh_inc),
+         chg_med_gross_rent = med_gross_rent - lag(med_gross_rent),
+         chg_med_val = med_val - lag(med_val),
+         chg_med_yr_blt = med_yr_blt - lag(med_yr_blt),
          lag_pov_rat = lag(pov_rat)) %>%
   filter(YEAR == 2016)
 
 
-#### IV. Descriptive statistics for panel -------------------------------------
+#### V. Descriptive statistics for panel --------------------------------------
+
+#first reorder the levels to NE, MW, S, W since that is normal
+change$REGION <- factor(change$REGION)
+change$REGION <- factor(change$REGION, levels = levels(change$REGION)[c(2, 1, 3, 4)])
+
 
 ggplot(change, aes(x = chg_pov_rat, y = chg_conc_pov)) + 
+  geom_vline(xintercept = 0, color = "grey60", linetype = 3) + 
+  geom_hline(yintercept = 0, color = "grey60", linetype = 3) +
   geom_point() +
-  geom_smooth(method = "lm")
+  geom_smooth(method = "lm") +
+  labs(x = "\nChange in Poverty Rate of Metro", 
+       y = "Change in Poverty Concentration\n") +
+  theme_minimal() +
+  theme(plot.margin = unit(c(.25, .25, .25, .25), "in")) +
+  ggsave(filename = "./output/chg_conc_pov_by_chg_pov_rat.png",
+         width = 6, height = 4, dpi = 300)
+
+ggplot(change, aes(x = chg_new_hu_excl_zon, y = chg_conc_pov)) +
+  geom_vline(xintercept = 0, color = "grey60", linetype = 3) + 
+  geom_hline(yintercept = 0, color = "grey60", linetype = 3) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "\nChange in Exclusionary Share of New HU", 
+       y = "Change in Poverty Concentration\n") +
+  theme_minimal() +
+  theme(plot.margin = unit(c(.25, .25, .25, .25), "in")) +
+  ggsave(filename = "./output/chg_conc_pov_by_chg_excl_hu.png",
+         width = 8, height = 6, dpi = 300)
+
+ggplot(change, aes(x = chg_pov_rat, y = chg_conc_pov)) + 
+  facet_grid(~ REGION) +
+  geom_vline(xintercept = 0, color = "grey60", linetype = 3) + 
+  geom_hline(yintercept = 0, color = "grey60", linetype = 3) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "\nChange in Poverty Rate of Metro", 
+       y = "Change in Poverty Concentration\n") +
+  theme_minimal() +
+  ggsave(filename = "./output/chg_pov_by_chg_conc_pov_and_region.png",
+         width = 8, height = 6, dpi = 300)
 
 ggplot(change, aes(x = chg_new_hu_excl_zon, y = chg_conc_pov)) + 
   facet_grid(~ REGION) +
+  geom_vline(xintercept = 0, color = "grey60", linetype = 3) + 
+  geom_hline(yintercept = 0, color = "grey60", linetype = 3) +
   geom_point() +
-  geom_smooth(method = "lm")
+  geom_smooth(method = "lm") +
+  labs(x = "\nChange in Exclusionary Share of New HU", 
+       y = "Change in Poverty Concentration\n") +
+  theme_minimal() +
+  theme(plot.margin = unit(c(.25, .25, .25, .25), "in")) +
+  ggsave(filename = "./output/chg_conc_pov_by_chg_excl_hu_and_region.png",
+         width = 8, height = 6, dpi = 300)
 
 
-#### V. Model estimation ------------------------------------------------------
+#### VI. Model estimation -----------------------------------------------------
 
 #NB: imposing top 100 reduces differences between ols and wls,
 
@@ -391,7 +508,8 @@ coeftest(base_wls, vcov = vcovHC(base_wls, type = "HC0"))
 ## Full model with adjustment for changes in metropolitan context
 full_formula <- chg_conc_pov ~ chg_new_hu_excl_zon +
   chg_pct_nhw + chg_pct_nhb + chg_pct_hsp + chg_pct_nhapi + 
-  chg_dis_nhb_nhw + chg_dis_hsp_nhw + chg_pov_rat +
+  chg_dis_nhb_nhw + chg_dis_hsp_nhw + chg_pov_rat + chg_pct_unemp +
+  chg_med_hh_inc + chg_med_gross_rent +
   REGION
 
 #OLS
@@ -409,7 +527,15 @@ summary(full_wls)
 coeftest(full_wls, vcov = vcovHC(full_wls, type = "HC0"))
 
 
-#### VI. Model data visualizations --------------------------------------------
+#### VII. Model tables --------------------------------------------------------
+
+stargazer::stargazer(full_ols, coeftest(full_ols, vcov = vcovHC(full_ols, type = "HC0")),
+                     full_wls, coeftest(full_wls, vcov = vcovHC(full_wls, type = "HC0")),
+                     column.labels = c("OLS", "OLS Robust SE", "WLS", "WLS Robust SE"))
+
+
+
+#### VIII. Model data visualizations ------------------------------------------
 
 ## Predicted values with other variables held at means
 pred_grid <- expand_grid(
@@ -419,9 +545,12 @@ pred_grid <- expand_grid(
   chg_pct_nhb = mean(change$chg_pct_nhb),
   chg_pct_hsp = mean(change$chg_pct_hsp),
   chg_pct_nhapi = mean(change$chg_pct_nhapi),
+  chg_pct_unemp = mean(change$chg_pct_unemp),
   chg_dis_nhb_nhw = mean(change$chg_dis_nhb_nhw),
   chg_dis_hsp_nhw = mean(change$chg_dis_hsp_nhw),
   chg_pov_rat = mean(change$chg_dis_nhb_nhw),
+  chg_med_hh_inc = mean(change$chg_med_hh_inc),
+  chg_med_gross_rent = mean(change$chg_med_gross_rent),
   REGION = c("Northeast")
 )
 
@@ -430,57 +559,39 @@ pred_grid$se <- predict(full_wls, newdata = pred_grid, se.fit = T)$se.fit
 
 ggplot(pred_grid, aes(x = chg_new_hu_excl_zon, y = xb, 
                       ymin = xb - 1.96 * se, ymax = xb + 1.96 * se)) +
+  geom_vline(xintercept = 0, color = "grey60", linetype = 3) + 
+  geom_hline(yintercept = 0, color = "grey60", linetype = 3) +
   geom_ribbon(alpha = .25) +
   geom_line() +
   theme_minimal() +
-  labs(x = "Change in Exclusionary Share of New HU",
-       y = "Change in Concentration of Poverty")
+  theme(plot.margin = unit(c(.25, .25, .25, .25), "in")) +
+  labs(x = "\nChange in Exclusionary Share of New HU",
+       y = "Predicted Change in Poverty Concentration\n") + 
+  ggsave(filename = "./output/wls_full_pred.png",
+         width = 6, height = 4, dpi = 300)
   
-## Bivariate map of IV and DV
+## Maps
 
 #a little bit of data preparation
-san_fran_2010 <- acs2010 %>% filter(METRO == "41884") %>% mutate(year = 2010)
-san_fran_2016 <- acs2016 %>% filter(METRO == "41884") %>% mutate(year = 2016)
-san_fran <- bind_rows(san_fran_2010, san_fran_2016) %>%
-  mutate(pct_new_hu_sfh = own_occ_sfh_post_2000/hu_blt_post_2000) %>%
+detroit2010 <- acs2010 %>% filter(CBSAFP == "19820") %>% mutate(year = 2010)
+detroit2016 <- acs2016 %>% filter(CBSAFP == "19820") %>% mutate(year = 2016)
+detroit <- bind_rows(detroit2010, detroit2016) %>%
+  mutate(pct_new_hu_sfh = own_occ_sfh_post_2000/tot_occ_hu) %>% #percent of occupied HU that was recent and SFH
   arrange(GISJOIN, year) %>%
   group_by(GISJOIN) %>%
-  mutate(chg_new_hu_sfh = pct_new_hu_sfh - lag(pct_pct_new_hu_sfh)) %>%
-  left_join(acs2016_shp) 
+  mutate(chg_new_hu_sfh = pct_new_hu_sfh - lag(pct_new_hu_sfh)) %>%
+  filter(year == 2016) %>%
+  left_join(acs2016_shp) %>%
+  st_as_sf() 
 
-#add the biclass col using fn from biscale lib
-under_tracts <- bi_class(cbsa_tracts, 
-                         x = under_cl, y = under_apts,
-                         style = "equal", dim = 3)
+ggplot(detroit, aes(fill = tot_poor/tot_pop >= .20)) + 
+  geom_sf(lwd = 0.01) + 
+  theme_minimal()
 
-#make the legends
-under_legend <- bi_legend(pal = "DkCyan",
-                          dim = 3,
-                          xlab = "Craigslist",
-                          ylab = "Apts.com",
-                          size = 8) +
-  theme(legend.text = element_text(family = "Helvetica"))
-
-#make the under map
-under_choro <- ggplot() +
-  geom_sf(data = under_tracts, aes(fill = bi_class), 
-          color = NA, size = 0.1, show.legend = FALSE) +
-  bi_scale_fill(pal = "DkCyan", dim = 3) +
-  labs(title = paste("Underrepresented Neighborhoods in", metro)) +
-  bi_theme() +
-  theme(plot.title = element_text(size = 14, family = "Helvetica"))
-
-#assemble the map and legend
-under_gg <- ggdraw() +
-  draw_plot(under_choro, 0, 0, 1, 1) +
-  draw_plot(under_legend, 0.025, 0.025, 0.2, 0.2)
-
-#save to disk
-save_plot(filename = paste0("./output/choro/bivar/", 
-                            str_split_fixed(metro, "-|,|/", n = 2)[1],
-                            "_bivar.pdf"),
-          plot = under_gg,
-          base_height = 8, base_asp = 1.25) 
+ggplot(detroit, aes(fill = chg_new_hu_sfh)) + 
+  geom_sf(lwd = 0.01) + 
+  scale_fill_gradient2(midpoint = 0) +
+  theme_minimal()
 
 
 
