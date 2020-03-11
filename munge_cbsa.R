@@ -5,6 +5,7 @@ library(tidyverse)    #dplyr, ggplot, stringr
 library(sf)           #spatial
 library(sandwich)     #robust SE estimation
 library(lmtest)       #coefficient testing
+library(skimr)        #summary statistic table
 
 #working directory = base of repo
 setwd("H:/zoning")
@@ -18,23 +19,23 @@ options(stringsAsFactors = FALSE)
 ## Tract flat files
 
 #2000 decennial census
-census2000a <- read.csv("input/2000 Tract Tables/nhgis0132_ds146_2000_tract.csv") %>%
-  select(-CTY_SUBA, -PLACEA, -(BLCK_GRPA:ZCTAA), -TRBL_CTA, -NAME)
-census2000b <- read.csv("input/2000 Tract Tables/nhgis0132_ds151_2000_tract.csv") %>%
-  select(-CTY_SUBA, -PLACEA, -(BLCK_GRPA:ZCTAA), -TRBL_CTA, -NAME)
-census2000 <- inner_join(census2000a, census2000b)
+#census2000a <- read.csv("./input/2000 Tract Tables/nhgis0141_ds146_2000_tract.csv") %>%
+#  select(-CTY_SUBA, -PLACEA, -(BLCK_GRPA:ZCTAA), -TRBL_CTA, -NAME)
+#census2000b <- read.csv("./input/2000 Tract Tables/nhgis0141_ds151_2000_tract.csv") %>%
+#  select(-CTY_SUBA, -PLACEA, -(BLCK_GRPA:ZCTAA), -TRBL_CTA, -NAME)
+#census2000 <- inner_join(census2000a, census2000b)
 
 #2008-2012 ACS (calling 2010 based on midpoint)
-acs2010a <- read.csv("./input/2008-2012 ACS Tract Tables/nhgis0132_ds191_20125_2012_tract.csv") %>%
+acs2010a <- read.csv("./input/2008-2012 ACS Tract Tables/nhgis0145_ds191_20125_2012_tract.csv") %>%
   select(-REGIONA, -DIVISIONA, -COUSUBA, -PLACEA, -(BLKGRPA:BTBGA), -NAME_E, -NAME_M)
-acs2010b <- read.csv("./input/2008-2012 ACS Tract Tables/nhgis0132_ds192_20125_2012_tract.csv") %>%
+acs2010b <- read.csv("./input/2008-2012 ACS Tract Tables/nhgis0145_ds192_20125_2012_tract.csv") %>%
   select(-REGIONA, -DIVISIONA, -COUSUBA, -PLACEA, -(CONCITA:BTTRA), -NAME_E, -NAME_M)
 acs2010 <- inner_join(acs2010a, acs2010b)
 
 #2014-2018 ACS (calling 2016 based on midpoint)
-acs2016a <- read.csv("./input/2014-2018 ACS Tract Tables/nhgis0132_ds239_20185_2018_tract.csv") %>%
+acs2016a <- read.csv("./input/2014-2018 ACS Tract Tables/nhgis0145_ds239_20185_2018_tract.csv") %>%
   select(-REGIONA, -DIVISIONA, -COUSUBA, -PLACEA, -(BLKGRPA:BTBGA), -NAME_E, -NAME_M)
-acs2016b <- read.csv("./input/2014-2018 ACS Tract Tables/nhgis0132_ds240_20185_2018_tract.csv") %>%
+acs2016b <- read.csv("./input/2014-2018 ACS Tract Tables/nhgis0145_ds240_20185_2018_tract.csv") %>%
   select(-REGIONA, -DIVISIONA, -COUSUBA, -PLACEA, -(CONCITA:BTTRA), -NAME_E, -NAME_M)
 acs2016 <- inner_join(acs2016a, acs2016b)
 
@@ -62,6 +63,30 @@ acs2016b_cbsa <- read.csv("./input/2014-2018 ACS CBSA Tables/nhgis0133_ds240_201
   select(-(GISJOIN:ANRCA), -(CSAA:NAME_E), -NAME_M)
 acs2016_cbsa <- inner_join(acs2016a_cbsa, acs2016b_cbsa)
 
+## Metropolitan Division flat files
+
+#ISSUE: the counties covered by metropolitan areas appear to have changed between ACS
+#       time periods here. E.g. Boston, MA in 2014-2018 vs Boston-Quincy, MA, 
+#       Tacoma, WA to Tacoma-Lakewood, WA. These complicate using metdiv data since
+#       we are wanting to use median estimates in the model (i.e. cannot just aggregate)
+#       Options: 1.) use CBSA, 2.) try to use IPUMS to estimate MetDiv values using
+#       harmonized definition of metdiv 3.) use aggregation even if improper
+
+# 2008-2012 ACS
+acs2010a_mdiv <- read.csv("./input/2008-2012 ACS MetDiv Tables/nhgis0135_ds191_20125_2012_metdiv.csv") %>%
+  select(-(GISJOIN:CSAA), -(NECTAA:NAME_E), -NAME_M)
+acs2010b_mdiv <- read.csv("./input/2008-2012 ACS MetDiv Tables/nhgis0135_ds192_20125_2012_metdiv.csv") %>%
+  select(-(GISJOIN:CSAA), -(NECTAA:NAME_E), -NAME_M)
+acs2010_mdiv <- inner_join(acs2010a_mdiv, acs2010b_mdiv)
+
+# 2014-2018 ACS
+acs2016a_mdiv <- read.csv("./input/2014-2018 ACS MetDiv Tables/nhgis0135_ds239_20185_2018_metdiv.csv") %>%
+  select(-(GISJOIN:CSAA), -(NECTAA:NAME_E), -NAME_M)
+acs2016b_mdiv <- read.csv("./input/2014-2018 ACS MetDiv Tables/nhgis0135_ds240_20185_2018_metdiv.csv") %>%
+  select(-(GISJOIN:CSAA), -(NECTAA:NAME_E), -NAME_M)
+acs2016_mdiv <- inner_join(acs2016a_mdiv, acs2016b_mdiv)
+
+
 ## Spatial data
 
 #CBSA shapefile
@@ -73,8 +98,8 @@ metdiv_shp <- read_sf("./input/2013-2017 ACS CBSA Polygon/US_metdiv_2017.shp") %
   st_transform(crs = st_crs(cbsa_shp))
 
 #2000 tract shapefile
-census2000_shp <- read_sf("./input/2000 Tract Polygon/US_tract_2000.shp") %>%
-  st_transform(crs = st_crs(cbsa_shp))
+#census2000_shp <- read_sf("./input/2000 Tract Polygon/US_tract_2000.shp") %>%
+#  st_transform(crs = st_crs(cbsa_shp))
 
 #2008-2012 ACS shapefile
 acs2010_shp <- read_sf("./input/2008-2012 ACS Tract Polygon/US_tract_2012.shp") %>%
@@ -85,7 +110,7 @@ acs2016_shp <- read_sf("./input/2013-2017 ACS Tract Polygon/US_tract_2017.shp") 
   st_transform(crs = st_crs(cbsa_shp))
 
 #clustering for neighborhoods
-clust <- read_sf("./input/hclust/US-hclust-zscore.shp") %>%
+clust <- read_sf("./input/hclust/US-hclust.shp") %>%
   group_by(CBSAA, clust) %>%
   summarize() %>%
   ungroup() %>%
@@ -177,7 +202,7 @@ metro_joiner <- function(tbl, shp){
 }
 
 ## Census 2000
-census2000 <- metro_joiner(census2000, census2000_shp)
+#census2000 <- metro_joiner(census2000, census2000_shp)
 
 ## ACS 2008-2012
 acs2010 <- metro_joiner(acs2010, acs2010_shp)
@@ -194,9 +219,9 @@ acs2016 <- metro_joiner(acs2016, acs2016_shp)
 #          iii. append location indicator to the flat files
 
 #point in polygon intersection for tract centroids in cluster regions
-census2000_clust_cw <- st_join(st_centroid(census2000_shp) %>% select(GISJOIN), 
-                               clust %>% select(clust), 
-                               left = FALSE)
+#census2000_clust_cw <- st_join(st_centroid(census2000_shp) %>% select(GISJOIN), 
+#                               clust %>% select(clust), 
+#                               left = FALSE)
 acs2010_clust_cw <- st_join(st_centroid(acs2010_shp) %>% select(GISJOIN), 
                             clust %>% select(clust), 
                             left = FALSE)
@@ -205,19 +230,19 @@ acs2016_clust_cw <- st_join(st_centroid(acs2016_shp) %>% select(GISJOIN),
                             left = FALSE)
 
 #drop the geometry column to make the crosswalks dataframes
-census2000_clust_cw <- st_drop_geometry(census2000_clust_cw)
+#census2000_clust_cw <- st_drop_geometry(census2000_clust_cw)
 acs2010_clust_cw <- st_drop_geometry(acs2010_clust_cw)
 acs2016_clust_cw <- st_drop_geometry(acs2016_clust_cw)
 
 #1:1 join of the spatially-intersected cluster value to the tract data
-census2000 <- inner_join(census2000, census2000_clust_cw)
+#census2000 <- inner_join(census2000, census2000_clust_cw)
 acs2010 <- inner_join(acs2010, acs2010_clust_cw)
 acs2016 <- inner_join(acs2016, acs2016_clust_cw)
 
 #### III. Identify the region for each tract ----------------------------------
 
 #m:1 join of the tracts to the region table
-census2000 <- left_join(census2000, regions)
+#census2000 <- left_join(census2000, regions)
 acs2010 <- left_join(acs2010, regions)
 acs2016 <- left_join(acs2016, regions)
 
@@ -254,7 +279,7 @@ acs2016 <- left_join(acs2016, regions)
 # +changes in segregation
 
 #assign a scalar to determine threshold for poor neighborhoods
-poor_tract_thresh <- .20
+tract_thresh <- .40
 
 #assign a function that will take an imput table of tract data and produce a metro summary
 metro_summary <- function(tbl, year){
@@ -265,8 +290,9 @@ metro_summary <- function(tbl, year){
     
     #compute summary columns using various aggregation funs
     summarize(REGION = max(REGION),
-              conc_pov = sum(poor_in_pov_tract)/sum(tot_poor),
-              new_hu_excl_zon = sum(tot_own_occ_sfh_newer_suburbs)/sum(hu_blt_post_2000),
+              conc_pov = if_else(sum(tot_blk_poor, na.rm = T) > 0, sum(blk_poor_in_pov_tract)/sum(tot_blk_poor), 0),
+              conc_aff = if_else(sum(tot_wht_aff, na.rm = T) > 0, sum(wht_aff_in_aff_tract, na.rm = T)/sum(tot_wht_aff, na.rm = T), 0),
+              new_hu_excl_zon = sum(tot_own_occ_sfh_newer_suburbs)/sum(occ_hu_blt_post_2000),
               dis_nhb_nhw = (.5) * sum(abs(tot_nhb/sum(tot_nhb) - tot_nhw/sum(tot_nhw))),
               dis_hsp_nhw = (.5) * sum(abs(tot_hsp/sum(tot_hsp) - tot_nhw/sum(tot_nhw))),
               dis_api_nhw = (.5) * sum(abs(tot_nhapi/sum(tot_nhapi) - tot_nhw/sum(tot_nhw))),
@@ -276,14 +302,15 @@ metro_summary <- function(tbl, year){
               tot_nhapi = sum(tot_nhapi),
               tot_nhoth = sum(tot_nhoth),
               tot_hsp = sum(tot_hsp),
-              pov_rat = sum(tot_poor)/sum(tot_pop)) %>%
+              pov_rat = sum(tot_poor)/sum(tot_pop_pov_det)) %>%
     
     #mutate some compositions based on counts
     mutate(YEAR = year,
            pct_nhw = tot_nhw/tot_pop,
            pct_nhb = tot_nhb/tot_pop,
            pct_nhapi = tot_nhapi/tot_pop,
-           pct_hsp = tot_hsp/tot_pop) %>%
+           pct_hsp = tot_hsp/tot_pop,
+           pct_nhoth = tot_nhoth/tot_pop) %>%
     
     #arrange largest to smallest by pop
     arrange(desc(tot_pop)) %>%
@@ -296,32 +323,42 @@ metro_summary <- function(tbl, year){
 }
 
 ## compute 2000 metropolitan summaries
-census2000 <- census2000 %>%
-  mutate(high_pov_tract = if_else(GN6001+GN6002 > 0, GN6001/(GN6001+GN6002) >= poor_tract_thresh, FALSE),
-         tot_poor = GN6001,
-         poor_in_pov_tract = if_else(high_pov_tract, tot_poor, 0L),
-         hu_blt_post_2000 = GD6001+GD6002+GD6003+GD6004+GD6005+GD6006+GD6007+
-           GD6064+GD6065+GD6066+GD6067+GD6068+GD6069+GD6070,
-         own_occ_sfh_post_2000 = GD6001,
-         newer_suburb = clust == "Newer Suburb",
-         tot_own_occ_sfh_newer_suburbs = if_else(newer_suburb, own_occ_sfh_post_2000, 0L),
-         tot_pop = FL5001,
-         tot_nhw = FMS001,
-         tot_nhb = FMS002,
-         tot_nhapi = FMS004+FMS005,
-         tot_nhoth = FMS003+FMS006+FMS007,
-         tot_hsp = FMS008+FMS009+FMS010+FMS011+FMS012+FMS013+FMS014) 
+#census2000 <- census2000 %>%
+#  mutate(high_pov_tract = if_else(GN6001+GN6002 > 0, GN6001/(GN6001+GN6002) >= poor_tract_thresh, FALSE),
+#         tot_poor = GN6001,
+#         tot_pop_pov_det = GN6001+GN6002,
+#         poor_in_pov_tract = if_else(high_pov_tract, tot_poor, 0L),
+#         hu_blt_post_2000 = GD6001+GD6002+GD6003+GD6004+GD6005+GD6006+GD6007+
+#           GD6064+GD6065+GD6066+GD6067+GD6068+GD6069+GD6070,
+#         own_occ_sfh_post_2000 = GD6001,
+#         newer_suburb = clust == "Newer Suburb",
+#         tot_own_occ_sfh_newer_suburbs = if_else(newer_suburb, own_occ_sfh_post_2000, 0L),
+#         tot_pop = FL5001,
+#         tot_nhw = FMS001,
+#         tot_nhb = FMS002,
+#         tot_nhapi = FMS004+FMS005,
+#         tot_nhoth = FMS003+FMS006+FMS007,
+#         tot_hsp = FMS008+FMS009+FMS010+FMS011+FMS012+FMS013+FMS014) 
 
-metro_sum_2000 <- census2000 %>%
-  metro_summary(year = 2000) 
+#metro_sum_2000 <- census2000 %>%
+#  metro_summary(year = 2000) 
 
 ## compute ACS 2008-2012 metropolitan summaries
 acs2010 <- acs2010 %>%
-  mutate(high_pov_tract = if_else(QUVE001 > 0, (QUVE002+QUVE003)/(QUVE001) >= poor_tract_thresh, FALSE),
+  mutate(high_pov_tract = if_else(QUVE001 > 0, (QUVE002+QUVE003)/(QUVE001) >= tract_thresh, FALSE),
          tot_poor = QUVE002+QUVE003,
+         tot_pop_pov_det = QUVE001,
          poor_in_pov_tract = if_else(high_pov_tract, tot_poor, 0L),
+         tot_blk_poor = Q9SE002,
+         tot_blk_pop_pov_det = Q9SE001,
+         blk_poor_in_pov_tract = if_else(high_pov_tract, tot_blk_poor, 0L),
+         tot_aff = QU0E015+QU0E016+QU0E017,
+         tot_hh = QU0E001,
+         high_aff_tract = if_else(tot_hh > 0, tot_aff/tot_hh >= tract_thresh, FALSE),
+         tot_wht_aff = RBVE015+RBVE016+RBVE017,
+         wht_aff_in_aff_tract = if_else(high_aff_tract, tot_wht_aff, 0L),
          tot_occ_hu = RGZE001,
-         hu_blt_post_2000 = RGZE003+RGZE039,
+         occ_hu_blt_post_2000 = RGZE003+RGZE039,
          own_occ_sfh_post_2000 = RGZE004,
          newer_suburb = clust == "Newer Suburb",
          tot_own_occ_sfh_newer_suburbs = if_else(newer_suburb, own_occ_sfh_post_2000, 0L),
@@ -342,8 +379,10 @@ acs2010_cbsa <- acs2010_cbsa %>%
          tot_vac_hu = QX7E003,
          med_gross_rent = QZTE001 * 1.09,
          med_val = QZ6E001,
-         med_yr_blt = QY2E001) %>% 
-  select(CBSAFP, starts_with("med"), starts_with("pct"))
+         med_yr_blt = QY2E001,
+         pct_vac_hu = tot_vac_hu/tot_hu,
+         gini = RCBE001) %>% 
+  select(CBSAFP, starts_with("med"), starts_with("pct"), gini)
 
 metro_sum_2010 <- acs2010 %>%
   metro_summary(year = 2010) %>%
@@ -351,11 +390,20 @@ metro_sum_2010 <- acs2010 %>%
 
 ## compute ACS 2014-2018 metropolitan summaries
 acs2016 <- acs2016 %>%
-  mutate(high_pov_tract = if_else(AJY4E001 > 0, (AJY4E002+AJY4E003)/(AJY4E001) >= poor_tract_thresh, FALSE),
+  mutate(high_pov_tract = if_else(AJY4E001 > 0, (AJY4E002+AJY4E003)/(AJY4E001) >= tract_thresh, FALSE),
          tot_poor = AJY4E002+AJY4E003,
+         tot_pop_pov_det = AJY4E001,
          poor_in_pov_tract = if_else(high_pov_tract, tot_poor, 0L),
+         tot_blk_poor = AKD3E002,
+         tot_blk_pop_pov_det = AKD3E001,
+         blk_poor_in_pov_tract = if_else(high_pov_tract, tot_blk_poor, 0L),
+         tot_aff = AJY9E015+AJY9E016+AJY9E017,
+         tot_hh = AJY9E001,
+         high_aff_tract = if_else(tot_hh > 0, tot_aff/tot_hh >= tract_thresh, FALSE),
+         tot_wht_aff = AKF7M015+AKF7M016+AKF7M017,
+         wht_aff_in_aff_tract = if_else(high_aff_tract, tot_wht_aff, 0L),
          tot_occ_hu = AKL6E001,
-         hu_blt_post_2000 = AKL6E003+AKL6E010+AKL6E046+AKL6E053,
+         occ_hu_blt_post_2000 = AKL6E003+AKL6E010+AKL6E046+AKL6E053,
          own_occ_sfh_post_2000 = AKL6E004+AKL6E011,
          newer_suburb = clust == "Newer Suburb",
          tot_own_occ_sfh_newer_suburbs = if_else(newer_suburb, own_occ_sfh_post_2000, 0L),
@@ -376,8 +424,10 @@ acs2016_cbsa <- acs2016_cbsa %>%
          tot_vac_hu = AJ1TE003,
          med_gross_rent = AJ3EE001,
          med_val = AJ3QE001,
-         med_yr_blt = AJ2NE001) %>%
-  select(CBSAFP, starts_with("med"), starts_with("pct"))
+         med_yr_blt = AJ2NE001,
+         pct_vac_hu = tot_vac_hu/tot_hu,
+         gini = AKGVE001) %>%
+  select(CBSAFP, starts_with("med"), starts_with("pct"), gini)
 
 metro_sum_2016 <- acs2016 %>%
   metro_summary(year = 2016) %>%
@@ -410,11 +460,13 @@ change <- metro_sum %>%
   group_by(CBSAFP, CBSANAMELSAD) %>%
   mutate(chg_new_hu_excl_zon = new_hu_excl_zon - lag(new_hu_excl_zon),
          chg_conc_pov = conc_pov - lag(conc_pov),
+         chg_conc_aff = conc_aff - lag(conc_aff),
          chg_pov_rat = pov_rat - lag(pov_rat),
          chg_pct_nhw = pct_nhw - lag(pct_nhw),
          chg_pct_nhb = pct_nhb - lag(pct_nhb),
          chg_pct_hsp = pct_hsp - lag(pct_hsp),
          chg_pct_nhapi = pct_nhapi - lag(pct_nhapi),
+         chg_pct_nhoth = pct_nhoth - lag(pct_nhoth),
          chg_pct_unemp = pct_unemp - lag(pct_unemp),
          chg_dis_nhb_nhw = dis_nhb_nhw - lag(dis_nhb_nhw),
          chg_dis_hsp_nhw = dis_hsp_nhw - lag(dis_hsp_nhw),
@@ -422,8 +474,15 @@ change <- metro_sum %>%
          chg_med_gross_rent = med_gross_rent - lag(med_gross_rent),
          chg_med_val = med_val - lag(med_val),
          chg_med_yr_blt = med_yr_blt - lag(med_yr_blt),
+         chg_pct_vac_hu = pct_vac_hu - lag(pct_vac_hu),
+         chg_gini = gini - lag(gini),
          lag_pov_rat = lag(pov_rat)) %>%
   filter(YEAR == 2016)
+
+#change omitted category to non-Hispanic white, use change in other as term
+#look at omitting dissimilarity
+#coeffiicent tables for all metros at .20 and .40 thresholds
+#plot for predictions
 
 
 #### V. Descriptive statistics for panel --------------------------------------
@@ -432,7 +491,7 @@ change <- metro_sum %>%
 change$REGION <- factor(change$REGION)
 change$REGION <- factor(change$REGION, levels = levels(change$REGION)[c(2, 1, 3, 4)])
 
-
+#plot the change score data
 ggplot(change, aes(x = chg_pov_rat, y = chg_conc_pov)) + 
   geom_vline(xintercept = 0, color = "grey60", linetype = 3) + 
   geom_hline(yintercept = 0, color = "grey60", linetype = 3) +
@@ -482,57 +541,122 @@ ggplot(change, aes(x = chg_new_hu_excl_zon, y = chg_conc_pov)) +
   ggsave(filename = "./output/chg_conc_pov_by_chg_excl_hu_and_region.png",
          width = 8, height = 6, dpi = 300)
 
+#Latex table of descriptives
+sum_tbl <- change %>% 
+  ungroup() %>%
+  select(chg_conc_pov, chg_conc_aff, chg_new_hu_excl_zon, chg_pct_nhb, chg_pct_hsp, 
+         chg_pct_nhapi, chg_pct_nhoth, chg_pov_rat, chg_pct_unemp, chg_med_hh_inc,
+         chg_med_gross_rent, chg_pct_vac_hu) %>%
+  skim() %>%
+  as_tibble() %>% select(variable=skim_variable, 
+                         mean=numeric.mean,
+                         sd=numeric.sd, 
+                         min=numeric.p0,
+                         max=numeric.p100)
+
+sum_tbl
+print(xtable::xtable(sum_tbl, digits = 3), include.rownames = FALSE)
+
 
 #### VI. Model estimation -----------------------------------------------------
 
 #NB: imposing top 100 reduces differences between ols and wls,
 
+### Concentration of black poverty
+
 ## Base model without adjustment for changes in metropolitan context
-base_formula <- chg_conc_pov ~ chg_new_hu_excl_zon + chg_pov_rat
+base_form_pov <- chg_conc_pov ~ chg_new_hu_excl_zon + chg_pov_rat
 
 #OLS
-base_ols <- lm(base_formula, change)
-summary(base_ols)
+base_ols_pov <- lm(base_form_pov, change)
+summary(base_ols_pov)
 
 #OLS with HC SEs
-coeftest(base_ols, vcov = vcovHC(base_ols, type = "HC0"))
+coeftest(base_ols_pov, vcov = vcovHC(base_ols_pov, type = "HC1"))
 
 #WLS
-base_wls <- lm(base_formula, change, weights = tot_pop)
-summary(base_wls)
+base_wls_pov <- lm(base_form_pov, change, weights = tot_pop)
+summary(base_wls_pov)
 
 #WLS with HC SEs
-coeftest(base_wls, vcov = vcovHC(base_wls, type = "HC0"))
+coeftest(base_wls_pov, vcov = vcovHC(base_wls_pov, type = "HC1"))
 
 
 ## Full model with adjustment for changes in metropolitan context
-full_formula <- chg_conc_pov ~ chg_new_hu_excl_zon +
-  chg_pct_nhw + chg_pct_nhb + chg_pct_hsp + chg_pct_nhapi + 
-  chg_dis_nhb_nhw + chg_dis_hsp_nhw + chg_pov_rat + chg_pct_unemp +
-  chg_med_hh_inc + chg_med_gross_rent +
-  REGION
+full_form_pov <- chg_conc_pov ~ chg_new_hu_excl_zon +
+  chg_pct_nhb + chg_pct_hsp + chg_pct_nhapi + chg_pct_nhoth + 
+  chg_pov_rat + chg_pct_unemp + chg_med_hh_inc + chg_med_gross_rent +
+  chg_pct_vac_hu
 
 #OLS
-full_ols <- lm(full_formula, change)
-summary(full_ols)
+full_ols_pov <- lm(full_form_pov, change)
+summary(full_ols_pov)
 
 #OLS with HC SEs
-coeftest(full_ols, vcov = vcovHC(full_ols, type = "HC0"))
+coeftest(full_ols_pov, vcov = vcovHC(full_ols_pov, type = "HC1"))
 
 #WLS
-full_wls <- lm(full_formula, change, weights = tot_pop)
-summary(full_wls)
+full_wls_pov <- lm(full_form_pov, change, weights = tot_pop)
+summary(full_wls_pov)
 
 #WLS with HC SEs
-coeftest(full_wls, vcov = vcovHC(full_wls, type = "HC0"))
+coeftest(full_wls_pov, vcov = vcovHC(full_wls_pov, type = "HC1"))
+
+
+### Concentration of white affluence
+
+## Base model without adjustment for changes in metropolitan context
+base_form_aff <- chg_conc_aff ~ chg_new_hu_excl_zon + chg_pov_rat
+
+#OLS
+base_ols_aff <- lm(base_form_aff, change)
+summary(base_ols_aff)
+
+#OLS with HC SEs
+coeftest(base_ols_aff, vcov = vcovHC(base_ols_aff, type = "HC1"))
+
+#WLS
+base_wls_aff <- lm(base_form_aff, change, weights = tot_pop)
+summary(base_wls_aff)
+
+#WLS with HC SEs
+coeftest(base_wls_aff, vcov = vcovHC(base_wls_aff, type = "HC1"))
+
+
+## Full model with adjustment for changes in metropolitan context
+full_form_aff <- chg_conc_aff ~ chg_new_hu_excl_zon +
+  chg_pct_nhb + chg_pct_hsp + chg_pct_nhapi + chg_pct_nhoth + 
+  chg_pov_rat + chg_pct_unemp + chg_med_hh_inc + chg_med_gross_rent +
+  chg_pct_vac_hu
+
+#OLS
+full_ols_aff <- lm(full_form_aff, change)
+summary(full_ols_aff)
+
+#OLS with HC SEs
+coeftest(full_ols_aff, vcov = vcovHC(full_ols_aff, type = "HC1"))
+
+#WLS
+full_wls_aff <- lm(full_form_aff, change, weights = tot_pop)
+summary(full_wls_aff)
+
+#WLS with HC SEs
+coeftest(full_wls_aff, vcov = vcovHC(full_wls_aff, type = "HC1"))
+
+
 
 
 #### VII. Model tables --------------------------------------------------------
 
-stargazer::stargazer(full_ols, coeftest(full_ols, vcov = vcovHC(full_ols, type = "HC0")),
-                     full_wls, coeftest(full_wls, vcov = vcovHC(full_wls, type = "HC0")),
+#concentration of black poverty
+stargazer::stargazer(full_ols_pov, coeftest(full_ols_pov, vcov = vcovHC(full_ols_pov, type = "HC1")),
+                     full_wls_pov, coeftest(full_wls_pov, vcov = vcovHC(full_wls_pov, type = "HC1")),
                      column.labels = c("OLS", "OLS Robust SE", "WLS", "WLS Robust SE"))
 
+#concentration of white affluence
+stargazer::stargazer(full_ols_aff, coeftest(full_ols_aff, vcov = vcovHC(full_ols_aff, type = "HC1")),
+                     full_wls_aff, coeftest(full_wls_aff, vcov = vcovHC(full_wls_aff, type = "HC1")),
+                     column.labels = c("OLS", "OLS Robust SE", "WLS", "WLS Robust SE"))
 
 
 #### VIII. Model data visualizations ------------------------------------------
@@ -541,17 +665,15 @@ stargazer::stargazer(full_ols, coeftest(full_ols, vcov = vcovHC(full_ols, type =
 pred_grid <- expand_grid(
   chg_conc_pov = round(seq(min(change$chg_conc_pov), max(change$chg_conc_pov), .01), 2),
   chg_new_hu_excl_zon = round(seq(min(change$chg_new_hu_excl_zon), max(change$chg_new_hu_excl_zon), .01), 2),
-  chg_pct_nhw = mean(change$chg_pct_nhw),
   chg_pct_nhb = mean(change$chg_pct_nhb),
   chg_pct_hsp = mean(change$chg_pct_hsp),
   chg_pct_nhapi = mean(change$chg_pct_nhapi),
+  chg_pct_nhoth = mean(change$chg_pct_nhoth),
   chg_pct_unemp = mean(change$chg_pct_unemp),
-  chg_dis_nhb_nhw = mean(change$chg_dis_nhb_nhw),
-  chg_dis_hsp_nhw = mean(change$chg_dis_hsp_nhw),
-  chg_pov_rat = mean(change$chg_dis_nhb_nhw),
+  chg_pov_rat = mean(change$chg_pov_rat),
   chg_med_hh_inc = mean(change$chg_med_hh_inc),
   chg_med_gross_rent = mean(change$chg_med_gross_rent),
-  REGION = c("Northeast")
+  chg_pct_vac_hu = mean(change$chg_pct_vac_hu)
 )
 
 pred_grid$xb <- predict(full_wls, newdata = pred_grid, se.fit = T)$fit
@@ -567,7 +689,7 @@ ggplot(pred_grid, aes(x = chg_new_hu_excl_zon, y = xb,
   theme(plot.margin = unit(c(.25, .25, .25, .25), "in")) +
   labs(x = "\nChange in Exclusionary Share of New HU",
        y = "Predicted Change in Poverty Concentration\n") + 
-  ggsave(filename = "./output/wls_full_pred.png",
+  ggsave(filename = paste0("./output/wls_full_pred_", poor_tract_thresh, ".png"),
          width = 6, height = 4, dpi = 300)
   
 ## Maps
