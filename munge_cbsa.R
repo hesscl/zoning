@@ -18,13 +18,6 @@ options(stringsAsFactors = FALSE)
 
 ## Tract flat files
 
-#2000 decennial census
-#census2000a <- read.csv("./input/2000 Tract Tables/nhgis0141_ds146_2000_tract.csv") %>%
-#  select(-CTY_SUBA, -PLACEA, -(BLCK_GRPA:ZCTAA), -TRBL_CTA, -NAME)
-#census2000b <- read.csv("./input/2000 Tract Tables/nhgis0141_ds151_2000_tract.csv") %>%
-#  select(-CTY_SUBA, -PLACEA, -(BLCK_GRPA:ZCTAA), -TRBL_CTA, -NAME)
-#census2000 <- inner_join(census2000a, census2000b)
-
 #2008-2012 ACS (calling 2010 based on midpoint)
 acs2010a <- read.csv("./input/2008-2012 ACS Tract Tables/nhgis0145_ds191_20125_2012_tract.csv") %>%
   select(-REGIONA, -DIVISIONA, -COUSUBA, -PLACEA, -(BLKGRPA:BTBGA), -NAME_E, -NAME_M)
@@ -44,10 +37,6 @@ regions <- read.csv("./input/census_regions.csv") %>%
   select(STATE=State, REGION=Region, DIVISION=Division)
 
 ## CBSA flat files
-
-# Census 2000
-# -not available, would need to be computed from county or smaller units
-# -issue is for median tables, can only approximate value
 
 # 2008-2012 ACS
 acs2010a_cbsa <- read.csv("./input/2008-2012 ACS CBSA Tables/nhgis0134_ds191_20125_2012_cbsa.csv") %>%
@@ -86,7 +75,6 @@ acs2016b_mdiv <- read.csv("./input/2014-2018 ACS MetDiv Tables/nhgis0135_ds240_2
   select(-(GISJOIN:CSAA), -(NECTAA:NAME_E), -NAME_M)
 acs2016_mdiv <- inner_join(acs2016a_mdiv, acs2016b_mdiv)
 
-
 ## Spatial data
 
 #CBSA shapefile
@@ -96,10 +84,6 @@ cbsa_shp <- read_sf("./input/2013-2017 ACS CBSA Polygon/US_cbsa_2017.shp") %>%
 #Metropolitan division shapefile
 metdiv_shp <- read_sf("./input/2013-2017 ACS CBSA Polygon/US_metdiv_2017.shp") %>%
   st_transform(crs = st_crs(cbsa_shp))
-
-#2000 tract shapefile
-#census2000_shp <- read_sf("./input/2000 Tract Polygon/US_tract_2000.shp") %>%
-#  st_transform(crs = st_crs(cbsa_shp))
 
 #2008-2012 ACS shapefile
 acs2010_shp <- read_sf("./input/2008-2012 ACS Tract Polygon/US_tract_2012.shp") %>%
@@ -141,6 +125,7 @@ clust <- read_sf("./input/hclust/US-hclust.shp") %>%
 #describe rank of metros on each measure
 #map of metro showing new housing dev relative to places of increasing poverty
 #weighted statistics by metro population
+
 
 #### I. Identify CBSA for each tract ------------------------------------------
 
@@ -201,9 +186,6 @@ metro_joiner <- function(tbl, shp){
   tbl
 }
 
-## Census 2000
-#census2000 <- metro_joiner(census2000, census2000_shp)
-
 ## ACS 2008-2012
 acs2010 <- metro_joiner(acs2010, acs2010_shp)
 
@@ -219,9 +201,6 @@ acs2016 <- metro_joiner(acs2016, acs2016_shp)
 #          iii. append location indicator to the flat files
 
 #point in polygon intersection for tract centroids in cluster regions
-#census2000_clust_cw <- st_join(st_centroid(census2000_shp) %>% select(GISJOIN), 
-#                               clust %>% select(clust), 
-#                               left = FALSE)
 acs2010_clust_cw <- st_join(st_centroid(acs2010_shp) %>% select(GISJOIN), 
                             clust %>% select(clust), 
                             left = FALSE)
@@ -230,29 +209,20 @@ acs2016_clust_cw <- st_join(st_centroid(acs2016_shp) %>% select(GISJOIN),
                             left = FALSE)
 
 #drop the geometry column to make the crosswalks dataframes
-#census2000_clust_cw <- st_drop_geometry(census2000_clust_cw)
 acs2010_clust_cw <- st_drop_geometry(acs2010_clust_cw)
 acs2016_clust_cw <- st_drop_geometry(acs2016_clust_cw)
 
 #1:1 join of the spatially-intersected cluster value to the tract data
-#census2000 <- inner_join(census2000, census2000_clust_cw)
 acs2010 <- inner_join(acs2010, acs2010_clust_cw)
 acs2016 <- inner_join(acs2016, acs2016_clust_cw)
 
 #### III. Identify the region for each tract ----------------------------------
 
 #m:1 join of the tracts to the region table
-#census2000 <- left_join(census2000, regions)
 acs2010 <- left_join(acs2010, regions)
 acs2016 <- left_join(acs2016, regions)
 
 #test maps
-#census2000 %>% filter(CBSAFP == "42660") %>% 
-#  left_join(census2000_shp %>% select(GISJOIN, geometry)) %>% 
-#  st_as_sf() %>% 
-#  select(clust) %>% 
-#  plot()
-
 #acs2010 %>% filter(CBSAFP == "19100") %>% 
 #  left_join(acs2010_shp %>% select(GISJOIN, geometry)) %>% 
 #  st_as_sf() %>% 
@@ -279,7 +249,7 @@ acs2016 <- left_join(acs2016, regions)
 # +changes in segregation
 
 #assign a scalar to determine threshold for poor neighborhoods
-tract_thresh <- .40
+tract_thresh <- .30
 
 #assign a function that will take an imput table of tract data and produce a metro summary
 metro_summary <- function(tbl, year){
@@ -321,27 +291,6 @@ metro_summary <- function(tbl, year){
   #return the metro table as fn output
   tbl
 }
-
-## compute 2000 metropolitan summaries
-#census2000 <- census2000 %>%
-#  mutate(high_pov_tract = if_else(GN6001+GN6002 > 0, GN6001/(GN6001+GN6002) >= poor_tract_thresh, FALSE),
-#         tot_poor = GN6001,
-#         tot_pop_pov_det = GN6001+GN6002,
-#         poor_in_pov_tract = if_else(high_pov_tract, tot_poor, 0L),
-#         hu_blt_post_2000 = GD6001+GD6002+GD6003+GD6004+GD6005+GD6006+GD6007+
-#           GD6064+GD6065+GD6066+GD6067+GD6068+GD6069+GD6070,
-#         own_occ_sfh_post_2000 = GD6001,
-#         newer_suburb = clust == "Newer Suburb",
-#         tot_own_occ_sfh_newer_suburbs = if_else(newer_suburb, own_occ_sfh_post_2000, 0L),
-#         tot_pop = FL5001,
-#         tot_nhw = FMS001,
-#         tot_nhb = FMS002,
-#         tot_nhapi = FMS004+FMS005,
-#         tot_nhoth = FMS003+FMS006+FMS007,
-#         tot_hsp = FMS008+FMS009+FMS010+FMS011+FMS012+FMS013+FMS014) 
-
-#metro_sum_2000 <- census2000 %>%
-#  metro_summary(year = 2000) 
 
 ## compute ACS 2008-2012 metropolitan summaries
 acs2010 <- acs2010 %>%
@@ -560,8 +509,6 @@ print(xtable::xtable(sum_tbl, digits = 3), include.rownames = FALSE)
 
 #### VI. Model estimation -----------------------------------------------------
 
-#NB: imposing top 100 reduces differences between ols and wls,
-
 ### Concentration of black poverty
 
 ## Base model without adjustment for changes in metropolitan context
@@ -693,6 +640,8 @@ ggplot(pred_grid, aes(x = chg_new_hu_excl_zon, y = xb,
          width = 6, height = 4, dpi = 300)
   
 ## Maps
+
+# not sure how useful
 
 #a little bit of data preparation
 detroit2010 <- acs2010 %>% filter(CBSAFP == "19820") %>% mutate(year = 2010)
