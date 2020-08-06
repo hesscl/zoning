@@ -1,13 +1,13 @@
 #### ACS based zoning-segregation analysis ------------------------------------
 
 #dependencies
-library(tidyverse)    #dplyr, ggplot, stringr
-library(sf)           #spatial
+library(tidyverse)    #dplyr, ggplot, stringr, purrr
+library(sf)           #spatial functionality
 library(sandwich)     #robust SE estimation
 library(lmtest)       #coefficient testing
 library(skimr)        #summary statistic table
 library(haven)        #read and write stata files
-library(stargazer)    #output to latex and ASCII
+library(stargazer)    #output to latex and ASCIIa
 
 #working directory = base of repo
 setwd("H:/zoning")
@@ -16,41 +16,41 @@ setwd("H:/zoning")
 options(stringsAsFactors = FALSE)
 
 
-#### A. Load NHGIS extracts ---------------------------------------------------
+#### Load NHGIS extracts ------------------------------------------------------
 
 ## Tract flat files
 
 #2008-2012 ACS (calling 2010 based on midpoint)
-acs2010a <- read.csv("./input/2008-2012 ACS Tract Tables/nhgis0157_ds191_20125_2012_tract.csv") %>%
+acs2010a <- read_csv("./input/2008-2012 ACS Tract Tables/nhgis0157_ds191_20125_2012_tract.csv") %>%
   select(-REGIONA, -DIVISIONA, -COUSUBA, -PLACEA, -(BLKGRPA:BTBGA), -NAME_E, -NAME_M)
-acs2010b <- read.csv("./input/2008-2012 ACS Tract Tables/nhgis0157_ds192_20125_2012_tract.csv") %>%
+acs2010b <- read_csv("./input/2008-2012 ACS Tract Tables/nhgis0157_ds192_20125_2012_tract.csv") %>%
   select(-REGIONA, -DIVISIONA, -COUSUBA, -PLACEA, -(CONCITA:BTTRA), -NAME_E, -NAME_M)
 acs2010 <- inner_join(acs2010a, acs2010b)
 
 #2014-2018 ACS (calling 2016 based on midpoint)
-acs2016a <- read.csv("./input/2014-2018 ACS Tract Tables/nhgis0157_ds239_20185_2018_tract.csv") %>%
+acs2016a <- read_csv("./input/2014-2018 ACS Tract Tables/nhgis0157_ds239_20185_2018_tract.csv") %>%
   select(-REGIONA, -DIVISIONA, -COUSUBA, -PLACEA, -(BLKGRPA:BTBGA), -NAME_E, -NAME_M)
-acs2016b <- read.csv("./input/2014-2018 ACS Tract Tables/nhgis0157_ds240_20185_2018_tract.csv") %>%
+acs2016b <- read_csv("./input/2014-2018 ACS Tract Tables/nhgis0157_ds240_20185_2018_tract.csv") %>%
   select(-REGIONA, -DIVISIONA, -COUSUBA, -PLACEA, -(CONCITA:BTTRA), -NAME_E, -NAME_M)
 acs2016 <- inner_join(acs2016a, acs2016b)
 
 #census regions table
-regions <- read.csv("./input/census_regions.csv") %>%
+regions <- read_csv("./input/census_regions.csv") %>%
   select(STATE=State, REGION=Region, DIVISION=Division)
 
 ## CBSA flat files
 
 # 2008-2012 ACS
-#acs2010a_cbsa <- read.csv("./input/2008-2012 ACS CBSA Tables/nhgis0134_ds191_20125_2012_cbsa.csv") %>%
+#acs2010a_cbsa <- read_csv("./input/2008-2012 ACS CBSA Tables/nhgis0134_ds191_20125_2012_cbsa.csv") %>%
 #  select(-(GISJOIN:ANRCA), -(CSAA:NAME_E), -NAME_M)
-#acs2010b_cbsa <- read.csv("./input/2008-2012 ACS CBSA Tables/nhgis0134_ds192_20125_2012_cbsa.csv") %>%
+#acs2010b_cbsa <- read_csv("./input/2008-2012 ACS CBSA Tables/nhgis0134_ds192_20125_2012_cbsa.csv") %>%
 #  select(-(GISJOIN:ANRCA), -(CSAA:NAME_E), -NAME_M)
 #acs2010_cbsa <- inner_join(acs2010a_cbsa, acs2010b_cbsa)
 
 # 2014-2018 ACS
-#acs2016a_cbsa <- read.csv("./input/2014-2018 ACS CBSA Tables/nhgis0133_ds239_20185_2018_cbsa.csv") %>%
+#acs2016a_cbsa <- read_csv("./input/2014-2018 ACS CBSA Tables/nhgis0133_ds239_20185_2018_cbsa.csv") %>%
 #  select(-(GISJOIN:ANRCA), -(CSAA:NAME_E), -NAME_M)
-#acs2016b_cbsa <- read.csv("./input/2014-2018 ACS CBSA Tables/nhgis0133_ds240_20185_2018_cbsa.csv") %>%
+#acs2016b_cbsa <- read_csv("./input/2014-2018 ACS CBSA Tables/nhgis0133_ds240_20185_2018_cbsa.csv") %>%
 #  select(-(GISJOIN:ANRCA), -(CSAA:NAME_E), -NAME_M)
 #acs2016_cbsa <- inner_join(acs2016a_cbsa, acs2016b_cbsa)
 
@@ -68,16 +68,16 @@ conpov_2018 <- read_dta("./input/conpov_2018.dta")
 #       harmonized definition of metdiv 3.) use aggregation even if improper
 
 # 2008-2012 ACS
-#acs2010a_mdiv <- read.csv("./input/2008-2012 ACS MetDiv Tables/nhgis0135_ds191_20125_2012_metdiv.csv") %>%
+#acs2010a_mdiv <- read_csv("./input/2008-2012 ACS MetDiv Tables/nhgis0135_ds191_20125_2012_metdiv.csv") %>%
 #  select(-(GISJOIN:CSAA), -(NECTAA:NAME_E), -NAME_M)
-#acs2010b_mdiv <- read.csv("./input/2008-2012 ACS MetDiv Tables/nhgis0135_ds192_20125_2012_metdiv.csv") %>%
+#acs2010b_mdiv <- read_csv("./input/2008-2012 ACS MetDiv Tables/nhgis0135_ds192_20125_2012_metdiv.csv") %>%
 #  select(-(GISJOIN:CSAA), -(NECTAA:NAME_E), -NAME_M)
 #acs2010_mdiv <- inner_join(acs2010a_mdiv, acs2010b_mdiv)
 
 # 2014-2018 ACS
-#acs2016a_mdiv <- read.csv("./input/2014-2018 ACS MetDiv Tables/nhgis0135_ds239_20185_2018_metdiv.csv") %>%
+#acs2016a_mdiv <- read_csv("./input/2014-2018 ACS MetDiv Tables/nhgis0135_ds239_20185_2018_metdiv.csv") %>%
 #  select(-(GISJOIN:CSAA), -(NECTAA:NAME_E), -NAME_M)
-#acs2016b_mdiv <- read.csv("./input/2014-2018 ACS MetDiv Tables/nhgis0135_ds240_20185_2018_metdiv.csv") %>%
+#acs2016b_mdiv <- read_csv("./input/2014-2018 ACS MetDiv Tables/nhgis0135_ds240_20185_2018_metdiv.csv") %>%
 #  select(-(GISJOIN:CSAA), -(NECTAA:NAME_E), -NAME_M)
 #acs2016_mdiv <- inner_join(acs2016a_mdiv, acs2016b_mdiv)
 
@@ -100,8 +100,9 @@ acs2016_shp <- read_sf("./input/2013-2017 ACS Tract Polygon/US_tract_2017.shp") 
   st_transform(crs = st_crs(cbsa_shp))
 
 #clustering for neighborhoods
-clust <- read_sf("./input/hclust/US-hclust-no-filter.shp") %>%
+clust <- read_sf("./input/hclust/US-hclust-rework.shp") %>%
   mutate(
+    CBSAA = CBSAFP10,
     clust = case_when(
       hclust == 4 ~ "Older Suburb",
       hclust == 3 ~ "City",
@@ -115,7 +116,7 @@ clust <- read_sf("./input/hclust/US-hclust-no-filter.shp") %>%
 
 #IV:
 
-#changes in % of new housing among metro area is SF dev in newer suburbs 
+#changes in % of new housing among metro area is SF dev in distant suburbs 
 #   - metropolitan areas with exclusionary zoning will have higher
 #     level of new housing built in such location + structure type
 
@@ -129,15 +130,12 @@ clust <- read_sf("./input/hclust/US-hclust-no-filter.shp") %>%
 
 #identify the metro (met div or CBSA) that a tract falls in at each period
 #identify the location type the tract falls in at each period
-#summarize poverty concentration for the whole metro at each period
-#summarize where new housing is being constructed at each period
+#summarize poverty concentration for each metro at each period
+#summarize new housing composition for each CBSA at each period
 #describe association between changes over time (delta povconc and delta new housing)
-#describe rank of metros on each measure
-#map of metro showing new housing dev relative to places of increasing poverty
-#weighted statistics by metro population
 
 
-#### I. Identify CBSA for each tract ------------------------------------------
+#### Identify CBSA for each tract ------------------------------------------
 
 #Strategy: i. spatial intersection of tract shapefile with metropolitan boundary
 #          shapefiles, 
@@ -156,19 +154,6 @@ metdiv_shp <- metdiv_shp %>%
   rename(METDIVNAME = NAME10,
          METDIVNAMELSAD = NAMELSAD10,
          METDIVFP = METDIVFP10)
-
-acs2010_cbsa <- acs2010_cbsa %>%
-  rename(CBSANAMELSAD = CBSA,
-         CBSAFP = CBSAA) %>%
-  mutate(CBSAFP = as.character(CBSAFP)) %>%
-  mutate(CBSAFP = ifelse(grepl("Honolulu", CBSANAMELSAD), 46520, CBSAFP),
-         CBSAFP = ifelse(grepl("Los Angeles", CBSANAMELSAD), 31080, CBSAFP),
-         CBSAFP = ifelse(grepl("Santa Maria", CBSANAMELSAD), 42200, CBSAFP))
-
-acs2016_cbsa <- acs2016_cbsa %>%
-  rename(CBSANAMELSAD = CBSA,
-         CBSAFP = CBSAA) %>%
-  mutate(CBSAFP = as.character(CBSAFP))
 
 ## function to join metro codes onto flatfiles based on spatial joins
 metro_joiner <- function(tbl, shp){
@@ -205,7 +190,7 @@ acs2010 <- metro_joiner(acs2010, acs2010_shp)
 acs2016 <- metro_joiner(acs2016, acs2016_shp)
 
 
-#### II. Identify location type for each tract --------------------------------
+#### Identify location type for each tract ------------------------------------
 
 #Strategy: i. spatial intersection of tract centroids with polygons for location
 #              types in the metropolitan area
@@ -229,14 +214,14 @@ acs2010 <- inner_join(acs2010, acs2010_clust_cw)
 acs2016 <- inner_join(acs2016, acs2016_clust_cw)
 
 
-#### III. Identify the region for each tract ----------------------------------
+#### Identify the region for each tract ---------------------------------------
 
 #m:1 join of the tracts to the region table
 acs2010 <- left_join(acs2010, regions)
 acs2016 <- left_join(acs2016, regions)
 
 
-#### IV. Compute median metro values using MCIB -------------------------------
+#### Compute median metro values using MCIB -----------------------------------
 
 #source mcib helper script that will process values through stata module
 source("./mcib.R")
@@ -268,18 +253,10 @@ result_rent_2016 <- result_rent_2016 %>%
 result_inc <- bind_rows(result_inc_2010, result_inc_2016)
 result_rent <- bind_rows(result_rent_2010, result_rent_2016)
 
+#add comparison to CBSA values available
 
-#### V. Analyze concentration of poverty and housing development --------------
 
-#Strategy: i. create flag for high-poverty neighborhoods
-#          ii. group tract tables by metro area
-#          iii. compute share of poor individuals living in high poverty tract for each metro
-#          iv. compute share of new housing units that were own-occ SF in newer suburbs
-
-#look at analysis using 20%, 30%, 40% definitions of poor neighborhood
-#conditional on within-metro changes: 
-# +non-spatial factors in metropolitan area 
-# +changes in segregation
+#### Analyze concentration of poverty and housing development -----------------
 
 #assign a scalar to determine threshold for poor/affluent neighborhoods
 thresh_set <- c(.20, .30, .40)
@@ -287,6 +264,6 @@ thresh_set <- c(.20, .30, .40)
 #load the function for running a complete analysis at set threshold level
 source("./analysis.R")
 
-#run analyses at each threshold levels
+#run analyses at each threshold levels, save to output dir
 map(thresh_set, run_zoning_analysis) 
 

@@ -1,4 +1,51 @@
-#assign a function that will take an imput table of tract data and produce a metro summary
+#Strategy: -write a set of functions that can be used to produce the desired estimates
+#          at a parameter value for high pov/aff neighborhood, 
+#          -run descriptive plots and tables, save to output
+#          -estimate models for concentration of pov/aff,
+#          -save model tables to storage, create plot for focal variable's coefficient
+
+clean_coef_tbl <- function(file, tex = TRUE){
+  
+  tbl <- read_lines(file)
+  
+  labels <- c("Chg Conc. Poverty", "Chg Conc. Black Poverty", "Chg Conc. Latino Poverty",
+              "Chg Conc. White Poverty", "Chg Conc. White Affluence", "Chg in % Excl. HU", 
+              "Chg % Black", "Chg % Latino", "Chg % Asian", "Chg % Other Race",
+              "Chg % Unemployed", "Chg Median HH Income", "Chg Median Gross Rent", "Chg Poverty Rate",
+              "Chg % Vacant HU")
+  
+  if(!tex) {
+    variables <- c("chg_conc_pov", "chg_conc_blk_pov", "chg_conc_lat_pov",
+                   "chg_conc_wht_pov", "chg_conc_wht_aff", "chg_new_hu_excl_zon", 
+                   "chg_pct_nhb", "chg_pct_hsp", "chg_pct_nhapi", "chg_pct_nhoth",
+                   "chg_pct_unemp", "chg_med_hh_inc", "chg_med_gross_rent", "chg_pov_rat",
+                   "chg_pct_vac_hu")
+    variables <- str_pad(variables, width = 30, side = "right")
+    labels <- str_pad(labels, width = 30, side = "right")
+  } else {
+    variables <- c("chg\\\\_conc\\\\_pov", "chg\\\\_conc\\\\_blk\\\\_pov", "chg\\\\_conc\\\\_lat\\\\_pov",
+                   "chg\\\\_conc\\\\_wht\\\\_pov", "chg\\\\_conc\\\\_wht\\\\_aff", "chg\\\\_new\\\\_hu\\\\_excl\\\\_zon", 
+                   "chg\\\\_pct\\\\_nhb", "chg\\\\_pct\\\\_hsp", "chg\\\\_pct\\\\_nhapi", "chg\\\\_pct\\\\_nhoth",
+                   "chg\\\\_pct\\\\_unemp", "chg\\\\_med\\\\_hh\\\\_inc", "chg\\\\_med\\\\_gross\\\\_rent", "chg\\\\_pov\\\\_rat",
+                   "chg\\\\_pct\\\\_vac\\\\_hu")
+  }
+  
+  for (i in seq_along(variables)){
+    tbl <- gsub(variables[i], labels[i], tbl)
+  }
+  
+  write_lines(tbl, file)
+}
+
+#assign a function that will take an input table of tract data and produce the CBSA-level IV 
+cbsa_summary <- function(tbl){
+  tbl <- tbl %>%
+    group_by(CBSAFP, CBSANAME, CBSANAMELSAD) %>%
+    mutate(new_hu_excl_zon = sum(tot_own_occ_sfh_excl_suburbs)/sum(occ_hu_blt_post_2000)) %>%
+    ungroup()
+}
+
+#assign a function that will take an input table of tract data and produce a metro summary
 metro_summary <- function(tbl, year){
   tbl <- tbl %>%
     
@@ -6,7 +53,9 @@ metro_summary <- function(tbl, year){
     group_by(METRO, METRONAME, METRONAMELSAD) %>%
     
     #compute summary columns using various aggregation funs
-    summarize(REGION = max(REGION),
+    summarize(CBSAFP = unique(CBSAFP),
+              REGION = max(REGION),
+              new_hu_excl_zon = unique(new_hu_excl_zon),
               conc_pov = ifelse(sum(tot_poor, na.rm = T) > 0,
                                  sum(poor_in_pov_tract, na.rm = T)/sum(tot_poor, na.rm = T), NA),
               conc_blk_pov = ifelse(sum(tot_blk_poor, na.rm = T) > 0,
@@ -17,15 +66,15 @@ metro_summary <- function(tbl, year){
                                      sum(wht_poor_in_pov_tract, na.rm = T)/sum(tot_wht_poor, na.rm = T), NA),
               conc_blk_lat_pov = ifelse(sum(tot_blk_poor+tot_lat_poor, na.rm = T) > 0,
                                          sum(blk_poor_in_pov_tract+lat_poor_in_pov_tract, na.rm = T)/sum(tot_blk_poor+tot_lat_poor, na.rm = T), NA),
-              conc_aff = ifelse(sum(tot_wht_aff, na.rm = T) > 0, 
+              conc_wht_aff = ifelse(sum(tot_wht_aff, na.rm = T) > 0, 
                                  sum(wht_aff_in_aff_tract, na.rm = T)/sum(tot_wht_aff, na.rm = T), NA),
-              new_hu_excl_zon = sum(tot_own_occ_sfh_newer_suburbs)/sum(occ_hu_blt_post_2000),
               dis_nhb_nhw = (.5) * sum(abs(tot_nhb/sum(tot_nhb) - tot_nhw/sum(tot_nhw))),
               dis_hsp_nhw = (.5) * sum(abs(tot_hsp/sum(tot_hsp) - tot_nhw/sum(tot_nhw))),
               dis_api_nhw = (.5) * sum(abs(tot_nhapi/sum(tot_nhapi) - tot_nhw/sum(tot_nhw))),
               tot_pop = sum(tot_pop),
               tot_nhw = sum(tot_nhw),
               tot_nhb = sum(tot_nhb),
+              tot_blk = sum(tot_blk),
               tot_nhapi = sum(tot_nhapi),
               tot_nhoth = sum(tot_nhoth),
               tot_hsp = sum(tot_hsp),
@@ -82,22 +131,24 @@ run_zoning_analysis <- function(tract_thresh){
            tot_occ_hu = RGZE001,
            occ_hu_blt_post_2000 = RGZE003+RGZE039,
            own_occ_sfh_post_2000 = RGZE004,
-           newer_suburb = clust %in% c("Newer Suburb", "Rural/Exurb"),
-           tot_own_occ_sfh_newer_suburbs = ifelse(newer_suburb, own_occ_sfh_post_2000, 0),
+           excl_suburb = clust %in% c("Newer Suburb", "Rural/Exurb"),
+           tot_own_occ_sfh_excl_suburbs = ifelse(excl_suburb, own_occ_sfh_post_2000, 0),
            tot_pop = QSPE001,
            tot_nhw = QSYE003,
            tot_nhb = QSYE004,
+           tot_blk = QSYE004+QSYE014,
            tot_nhapi = QSYE006+QSYE007,
            tot_nhoth = QSYE005+QSYE008+QSYE009+QSYE010+QSYE011,
            tot_hsp = QSYE012,
            tot_unemp = QXSE005,
-           tot_in_labf = QXSE002,
+           tot_in_labf = QXSE003,
            tot_16plus = QXSE001,
            tot_hu = QX7E001,
            tot_vac_hu = QX7E003,
            tot_in_labf = QXSE003,
            tot_unemp = QXSE005) %>%
-    metro_summary(year = 2010) 
+    cbsa_summary() %>%
+    metro_summary(year = 2010)
   
   ## compute ACS 2014-2018 metropolitan summaries
   metro_sum_2016 <- acs2016 %>%
@@ -122,21 +173,23 @@ run_zoning_analysis <- function(tract_thresh){
            tot_occ_hu = AKL6E001,
            occ_hu_blt_post_2000 = AKL6E003+AKL6E010+AKL6E046+AKL6E053,
            own_occ_sfh_post_2000 = AKL6E004+AKL6E011,
-           newer_suburb = clust %in% c("Newer Suburb", "Rural/Exurb"),
-           tot_own_occ_sfh_newer_suburbs = ifelse(newer_suburb, own_occ_sfh_post_2000, 0),
+           excl_suburb = clust %in% c("Newer Suburb", "Rural/Exurb"),
+           tot_own_occ_sfh_excl_suburbs = ifelse(excl_suburb, own_occ_sfh_post_2000, 0),
            tot_pop = AJWME001,
            tot_nhw = AJWVE003,
            tot_nhb = AJWVE004,
+           tot_blk = AJWVE004+AJWVE014,
            tot_nhapi = AJWVE006+AJWVE007,
            tot_nhoth = AJWVE005+AJWVE008+AJWVE009+AJWVE010+AJWVE011,
            tot_hsp = AJWVE012,
            tot_unemp = AJ1CE005,
-           tot_in_labf = AJ1CE002,
+           tot_in_labf = AJ1CE003,
            tot_16plus = AJ1CE001,
            tot_hu = AJ1TE001,
            tot_vac_hu = AJ1TE003,
            tot_in_labf = AJ1CE003,
            tot_unemp = AJ1CE005) %>%
+    cbsa_summary() %>%
     metro_summary(year = 2016)
   
   #for testing values against paul's data
@@ -174,7 +227,7 @@ run_zoning_analysis <- function(tract_thresh){
            chg_conc_blk_pov = conc_blk_pov - lag(conc_blk_pov),
            chg_conc_lat_pov = conc_lat_pov - lag(conc_lat_pov),
            chg_conc_wht_pov = conc_wht_pov - lag(conc_wht_pov),
-           chg_conc_aff = conc_aff - lag(conc_aff),
+           chg_conc_wht_aff = conc_wht_aff - lag(conc_wht_aff),
            chg_pov_rat = pov_rat - lag(pov_rat),
            chg_pct_nhw = pct_nhw - lag(pct_nhw),
            chg_pct_nhb = pct_nhb - lag(pct_nhb),
@@ -258,7 +311,8 @@ run_zoning_analysis <- function(tract_thresh){
   #Latex table of descriptives
   sum_tbl <- change %>% 
     ungroup() %>%
-    select(chg_conc_pov, chg_conc_blk_pov, chg_conc_aff, chg_new_hu_excl_zon, chg_pct_nhb, chg_pct_hsp, 
+    select(chg_conc_pov, chg_conc_blk_pov, chg_conc_lat_pov, chg_conc_wht_pov,
+           chg_conc_wht_aff, chg_new_hu_excl_zon, chg_pct_nhb, chg_pct_hsp, 
            chg_pct_nhapi, chg_pct_nhoth, chg_pov_rat, chg_pct_unemp, chg_med_hh_inc,
            chg_med_gross_rent, chg_pct_vac_hu) %>%
     skim() %>%
@@ -329,7 +383,7 @@ run_zoning_analysis <- function(tract_thresh){
   coeftest(base_ols_blk_pov, vcov = vcovHC(base_ols_blk_pov, type = "HC1"))
   
   #WLS
-  base_wls_blk_pov <- lm(base_form_blk_pov, change, weights = tot_pop)
+  base_wls_blk_pov <- lm(base_form_blk_pov, change, weights = tot_nhb)
   summary(base_wls_blk_pov)
   
   #WLS with HC SEs
@@ -349,7 +403,7 @@ run_zoning_analysis <- function(tract_thresh){
   coeftest(full_ols_blk_pov, vcov = vcovHC(full_ols_blk_pov, type = "HC1"))
   
   #WLS
-  full_wls_blk_pov <- lm(full_form_blk_pov, change, weights = tot_pop)
+  full_wls_blk_pov <- lm(full_form_blk_pov, change, weights = tot_nhb)
   summary(full_wls_blk_pov)
   
   #WLS with HC SEs
@@ -368,7 +422,7 @@ run_zoning_analysis <- function(tract_thresh){
   coeftest(base_ols_lat_pov, vcov = vcovHC(base_ols_lat_pov, type = "HC1"))
   
   #WLS
-  base_wls_lat_pov <- lm(base_form_lat_pov, change, weights = tot_pop)
+  base_wls_lat_pov <- lm(base_form_lat_pov, change, weights = tot_hsp)
   summary(base_wls_lat_pov)
   
   #WLS with HC SEs
@@ -388,7 +442,7 @@ run_zoning_analysis <- function(tract_thresh){
   coeftest(full_ols_lat_pov, vcov = vcovHC(full_ols_lat_pov, type = "HC1"))
   
   #WLS
-  full_wls_lat_pov <- lm(full_form_lat_pov, change, weights = tot_pop)
+  full_wls_lat_pov <- lm(full_form_lat_pov, change, weights = tot_hsp)
   summary(full_wls_lat_pov)
   
   #WLS with HC SEs
@@ -407,7 +461,7 @@ run_zoning_analysis <- function(tract_thresh){
   coeftest(base_ols_wht_pov, vcov = vcovHC(base_ols_wht_pov, type = "HC1"))
   
   #WLS
-  base_wls_wht_pov <- lm(base_form_wht_pov, change, weights = tot_pop)
+  base_wls_wht_pov <- lm(base_form_wht_pov, change, weights = tot_nhw)
   summary(base_wls_wht_pov)
   
   #WLS with HC SEs
@@ -427,7 +481,7 @@ run_zoning_analysis <- function(tract_thresh){
   coeftest(full_ols_wht_pov, vcov = vcovHC(full_ols_wht_pov, type = "HC1"))
   
   #WLS
-  full_wls_wht_pov <- lm(full_form_wht_pov, change, weights = tot_pop)
+  full_wls_wht_pov <- lm(full_form_wht_pov, change, weights = tot_nhw)
   summary(full_wls_wht_pov)
   
   #WLS with HC SEs
@@ -437,7 +491,7 @@ run_zoning_analysis <- function(tract_thresh){
   ### Concentration of white affluence
   
   ## Base model without adjustment for changes in metropolitan context
-  base_form_aff <- chg_conc_aff ~ chg_new_hu_excl_zon + chg_pov_rat
+  base_form_aff <- chg_conc_wht_aff ~ chg_new_hu_excl_zon + chg_pov_rat
   
   #OLS
   base_ols_aff <- lm(base_form_aff, change)
@@ -447,7 +501,7 @@ run_zoning_analysis <- function(tract_thresh){
   coeftest(base_ols_aff, vcov = vcovHC(base_ols_aff, type = "HC1"))
   
   #WLS
-  base_wls_aff <- lm(base_form_aff, change, weights = tot_pop)
+  base_wls_aff <- lm(base_form_aff, change, weights = tot_nhw)
   summary(base_wls_aff)
   
   #WLS with HC SEs
@@ -455,7 +509,7 @@ run_zoning_analysis <- function(tract_thresh){
   
   
   ## Full model with adjustment for changes in metropolitan context
-  full_form_aff <- chg_conc_aff ~ chg_new_hu_excl_zon +
+  full_form_aff <- chg_conc_wht_aff ~ chg_new_hu_excl_zon +
     chg_pct_nhb + chg_pct_hsp + chg_pct_nhapi + chg_pct_nhoth + 
     chg_pov_rat + chg_pct_unemp + chg_med_hh_inc + chg_med_gross_rent +
     chg_pct_vac_hu
@@ -468,7 +522,7 @@ run_zoning_analysis <- function(tract_thresh){
   coeftest(full_ols_aff, vcov = vcovHC(full_ols_aff, type = "HC1"))
   
   #WLS
-  full_wls_aff <- lm(full_form_aff, change, weights = tot_pop)
+  full_wls_aff <- lm(full_form_aff, change, weights = tot_nhw)
   summary(full_wls_aff)
   
   #WLS with HC SEs
@@ -522,6 +576,24 @@ run_zoning_analysis <- function(tract_thresh){
                        out = c(paste0("./output/model_tbl/aff_models_", tract_thresh, "_thresh.tex"),
                                paste0("./output/model_tbl/aff_models_", tract_thresh, "_thresh.txt")))
   
+  stargazer::stargazer(coeftest(full_wls_pov, vcov = vcovHC(full_wls_pov, type = "HC1")),
+                       coeftest(full_wls_blk_pov, vcov = vcovHC(full_wls_blk_pov, type = "HC1")),
+                       coeftest(full_wls_lat_pov, vcov = vcovHC(full_wls_lat_pov, type = "HC1")),
+                       coeftest(full_wls_wht_pov, vcov = vcovHC(full_wls_wht_pov, type = "HC1")),
+                       coeftest(full_wls_aff, vcov = vcovHC(full_wls_aff, type = "HC1")),
+                       model.names = FALSE,
+                       dep.var.labels.include = FALSE,
+                       column.labels = c("Overall", "Black", "Latino", "White", "White"),
+                       out = c(paste0("./output/model_tbl/weighted_models_", tract_thresh, "_thresh.tex"),
+                               paste0("./output/model_tbl/weighted_models_", tract_thresh, "_thresh.txt")))
+  
+  tex_files <- paste0("./output/model_tbl/", 
+                      list.files("./output/model_tbl/", pattern = "tex"))  
+  txt_files <- paste0("./output/model_tbl/", 
+                      list.files("./output/model_tbl/", pattern = "txt")) 
+  
+  map(tex_files, clean_coef_tbl)
+  map(txt_files, clean_coef_tbl, tex = FALSE)
   
   #### IX. Model data visualizations ------------------------------------------
   
@@ -583,7 +655,7 @@ run_zoning_analysis <- function(tract_thresh){
   )
   
   pred_grid_aff <- expand_grid(
-    chg_conc_aff = round(seq(min(change$chg_conc_aff), max(change$chg_conc_aff), .01), 2),
+    chg_conc_wht_aff = round(seq(min(change$chg_conc_wht_aff), max(change$chg_conc_wht_aff), .01), 2),
     chg_new_hu_excl_zon = round(seq(min(change$chg_new_hu_excl_zon), max(change$chg_new_hu_excl_zon), .01), 2),
     chg_pct_nhb = mean(change$chg_pct_nhb),
     chg_pct_hsp = mean(change$chg_pct_hsp),
@@ -617,6 +689,8 @@ run_zoning_analysis <- function(tract_thresh){
     geom_hline(yintercept = 0, color = "grey60", linetype = 3) +
     geom_ribbon(alpha = .25) +
     geom_line() +
+    scale_x_continuous(labels = scales::percent) +
+    scale_y_continuous(labels = scales::percent) +
     theme_minimal() +
     theme(plot.margin = unit(c(.25, .25, .25, .25), "in")) +
     labs(x = "\nChange in Exclusionary Share of New HU",
@@ -630,6 +704,8 @@ run_zoning_analysis <- function(tract_thresh){
     geom_hline(yintercept = 0, color = "grey60", linetype = 3) +
     geom_ribbon(alpha = .25) +
     geom_line() +
+    scale_x_continuous(labels = scales::percent) +
+    scale_y_continuous(labels = scales::percent) +
     theme_minimal() +
     theme(plot.margin = unit(c(.25, .25, .25, .25), "in")) +
     labs(x = "\nChange in Exclusionary Share of New HU",
@@ -643,6 +719,8 @@ run_zoning_analysis <- function(tract_thresh){
     geom_hline(yintercept = 0, color = "grey60", linetype = 3) +
     geom_ribbon(alpha = .25) +
     geom_line() +
+    scale_x_continuous(labels = scales::percent) +
+    scale_y_continuous(labels = scales::percent) +
     theme_minimal() +
     theme(plot.margin = unit(c(.25, .25, .25, .25), "in")) +
     labs(x = "\nChange in Exclusionary Share of New HU",
@@ -656,6 +734,8 @@ run_zoning_analysis <- function(tract_thresh){
     geom_hline(yintercept = 0, color = "grey60", linetype = 3) +
     geom_ribbon(alpha = .25) +
     geom_line() +
+    scale_x_continuous(labels = scales::percent) +
+    scale_y_continuous(labels = scales::percent) +
     theme_minimal() +
     theme(plot.margin = unit(c(.25, .25, .25, .25), "in")) +
     labs(x = "\nChange in Exclusionary Share of New HU",
@@ -669,11 +749,15 @@ run_zoning_analysis <- function(tract_thresh){
     geom_hline(yintercept = 0, color = "grey60", linetype = 3) +
     geom_ribbon(alpha = .25) +
     geom_line() +
+    scale_x_continuous(labels = scales::percent) +
+    scale_y_continuous(labels = scales::percent) +
     theme_minimal() +
     theme(plot.margin = unit(c(.25, .25, .25, .25), "in")) +
     labs(x = "\nChange in Exclusionary Share of New HU",
          y = "Predicted Change in Affluence Concentration\n") + 
     ggsave(filename = paste0("./output/pred/full_wls_aff_pred_", tract_thresh, ".png"),
            width = 6, height = 4, dpi = 300)
+  
+  write_dta(change, paste0("./input/data_for_stata_", tract_thresh, ".dta"))
   
 }
